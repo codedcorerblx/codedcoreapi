@@ -10,7 +10,11 @@ export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs
     return await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
   } catch (e) {
     if (ctrl.signal.aborted) throw new ApiError("UPSTREAM_TIMEOUT", `Upstream did not respond within ${timeoutMs}ms`);
-    throw new ApiError("UPSTREAM_ERROR", "Could not reach the upstream API");
+    // Surface the low-level cause code (ECONNRESET, ENOTFOUND, UND_ERR_CONNECT_TIMEOUT, CERT_*, ...). No URLs or secrets.
+    const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
+    const code = cause?.code ?? (e instanceof Error ? e.name : "unknown");
+    console.error(`[upstream] network failure host=${new URL(url).host} cause=${code} detail=${String(cause?.message ?? (e as Error)?.message ?? "").slice(0, 160)}`);
+    throw new ApiError("UPSTREAM_ERROR", `Could not reach the upstream API (${code})`, { details: { cause: code } });
   } finally {
     clearTimeout(timer);
   }
