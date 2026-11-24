@@ -13,7 +13,7 @@ export default function Nav() {
   return (
     <header className="topbar">
       <div className="wrap">
-        <Link href="/" className="brand"><i aria-hidden />Relay</Link>
+        <Link href="/" className="brand"><i aria-hidden />CodedCore API</Link>
         <nav className="nav" aria-label="Primary">
           {items.map((i) => (
             <Link key={i.href} href={i.href} aria-current={i.match(path) ? "page" : undefined}>{i.label}</Link>

@@ -8,7 +8,7 @@ const sans = Bricolage_Grotesque({ subsets: ["latin"], variable: "--font-bricola
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
 export const metadata: Metadata = {
-  title: { default: "Relay: private Roblox + Discord API proxy", template: "%s · Relay" },
+  title: { default: "CodedCore API: private Roblox + Discord API proxy", template: "%s · CodedCore API" },
   description: "One private key in front of Roblox and Discord public data, with one JSON envelope, pagination, batching and live status.",
   robots: { index: false, follow: false },
 };
@@ -22,7 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>{children}</main>
         <footer>
           <div className="wrap">
-            <span>Relay: every /api request needs the x-api-key header.</span>
+            <span>CodedCore API: every /api request needs the x-api-key header.</span>
             <span><Link href="/openapi.json">openapi.json</Link> · <Link href="/swagger">Swagger UI</Link></span>
           </div>
         </footer>

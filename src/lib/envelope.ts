@@ -14,6 +14,8 @@ export interface Metadata {
   requestId: string;
   availability?: "available" | "empty" | "partial";
   pagination?: PaginationMeta;
+  /** Present when a username was translated to an ID. */
+  resolved?: { param: string; input: string; id: string };
 }
 export interface ApiBody {
   success: boolean;

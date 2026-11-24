@@ -73,7 +73,7 @@ export function buildOpenApi(baseUrl: string): Json {
   return {
     openapi: "3.1.0",
     info: {
-      title: "Discord + Roblox API Proxy", version: "1.0.0",
+      title: "CodedCore API", version: "1.0.0",
       description: "Private proxy over official Roblox and Discord APIs. Every request needs the single private key in the `x-api-key` header. All responses use one envelope: `{ success, data, error, nextCursor, metadata }`. Generated from the same endpoint registry as the documentation, playground and batch validation.",
     },
     servers: [{ url: baseUrl }],

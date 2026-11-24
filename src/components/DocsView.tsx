@@ -105,6 +105,10 @@ export function Concepts() {
         <JsonView value={{ success: true, data: {}, error: null, nextCursor: null, metadata: { timestamp: "ISO-8601", cached: false, responseTime: 120, requestId: "uuid", availability: "available" } }} />
         <JsonView value={{ success: false, data: null, error: { code: "RATE_LIMITED", message: "Roblox rate limited the request" }, nextCursor: null, metadata: { timestamp: "ISO-8601", responseTime: 42, requestId: "uuid" } }} />
       </section>
+      <section id="usernames"><h3>Users by ID or username</h3>
+        <p className="muted"><b>Roblox:</b> every <code>{"{userId}"}</code> path accepts a numeric ID or a username (case-insensitive). All-digit values are IDs; write <code>@12345</code> to force a username. The proxy resolves the name first, caches it for 10 minutes, and reports the translation in <code>metadata.resolved</code>. Unknown names return 404 <code>NOT_FOUND</code>.</p>
+        <p className="muted"><b>Discord:</b> there is no global username lookup in Discord&apos;s API. Pass a snowflake, or add <code>guildId</code> so the name is matched against that server&apos;s members (exact match on username, display name or nickname; ambiguous matches return <code>INVALID_REQUEST</code> with candidate IDs). <code>/guilds/{"{guildId}"}/members/{"{userId}"}</code> accepts names directly.</p>
+      </section>
       <section id="pagination"><h3>Pagination</h3>
         <p className="muted">List endpoints take <code>limit</code> (clamped to the upstream maximum), <code>cursor=&lt;nextCursor&gt;</code> for manual paging, and <code>cursor=auto</code> to walk every page server-side. Auto mode is bounded by item, page and time caps; hitting one returns the partial result with <code>metadata.pagination.truncated=true</code>, a <code>reason</code>, and a <code>nextCursor</code> you can resume from.</p>
       </section>

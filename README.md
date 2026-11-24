@@ -1,4 +1,4 @@
-# Relay: private Roblox + Discord API proxy
+# CodedCore API: private Roblox + Discord API proxy
 
 Next.js 15 (App Router) + TypeScript for Vercel. One private API key in front of Roblox and Discord public data, one JSON envelope, pagination, batching, a server-side playground, OpenAPI/Swagger and a Postgres-backed status dashboard.
 
@@ -32,6 +32,13 @@ Tuning variables are listed in `.env.example`. Credentials are never returned or
 `x-api-key` is required on **every** `/api/*` request (batch and playground included); missing/wrong → 401. Constant-time compare; fails closed if `API_SECRET` is unset. Public: `/`, `/docs/*`, `/status`, `/status/data`, `/openapi.json`, `/swagger`. No accounts or extra keys.
 
 **Playground:** the key never reaches frontend JS, storage or network config. Because docs are public, an open playground would let anyone spend your key, so you enter the key once; the server verifies it and sets a signed, HttpOnly, SameSite=Strict, 1-hour cookie (an HMAC of an expiry, not the key). Requests run via `/api/playground/execute`, which injects the key server-side. Changing `API_SECRET` invalidates sessions.
+
+## Users by ID or username
+- **Roblox:** every `{userId}` path accepts an ID or a username (case-insensitive). All-digit values are IDs; `@12345` forces a username. Names resolve through `POST /v1/usernames/users`, are cached for 10 minutes, and the translation is reported in `metadata.resolved`.
+- **Discord:** the API has no global username lookup, so none is invented. Pass a snowflake, or add `guildId=<server id>` and the name is matched (exact, case-insensitive: username, display name, nickname) against that server's members via member search (needs the Server Members Intent). `/guilds/{guildId}/members/{userId}` accepts names directly. Ambiguous matches return `INVALID_REQUEST` with candidate IDs.
+
+## Friends, followers, following
+Roblox's friends endpoints return IDs with unreliable names. The proxy gets the IDs (falling back to the older paginated `/friends/find` listing if the primary call fails), then fills in `name`, `displayName` and `hasVerifiedBadge` using `POST /v1/users` in batches of 100. Pass `hydrate=false` for a faster IDs-only response. If some lookups fail the response is `availability: "partial"`.
 
 ## Envelope, availability, errors
 `{ success, data, error, nextCursor, metadata }`. Metadata always has `timestamp`, `responseTime`, `requestId`; successes add `cached`, `availability` (`available|empty|partial`) and list `pagination`. Private / forbidden / unsupported are distinct error codes (`PRIVATE`, `FORBIDDEN`, `UNSUPPORTED`), never silent empties.

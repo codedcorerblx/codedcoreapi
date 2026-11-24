@@ -3,10 +3,15 @@ import { config } from "../config";
 import { ApiError } from "../errors";
 import { fetchImageBase64 } from "../http";
 import { arrOf, bool, dt, f, int, obj, pick, prim, q, snowflake, str } from "./helpers";
-import type { EndpointDefInput, FieldDef, HandlerContext, PageArgs } from "./types";
+import type { EndpointDefInput, FieldDef, HandlerContext, PageArgs, ParamDef } from "./types";
 
 const EPOCH = 1420070400000n;
 const bot = { service: "discord" as const, mode: "required" as const, note: "Uses a rotating DISCORD_BOT_TOKENS entry. The bot must be able to see the target." };
+const userRef = (nameOnly = false): ParamDef => ({
+  name: "userId", in: "path", type: "string", required: true, resolve: "discordUser", pattern: "^(\\d{15,21}|@?[^\\s/?#][^/?#]{1,79})$", example: "80351110224678912",
+  description: "User snowflake" + (nameOnly ? " **or username / display name / nickname** (matched within this server's members; needs the Server Members Intent)." : " **or username**. Discord has no global username lookup, so a username also needs the guildId query parameter."),
+});
+const guildIdQuery = q("guildId", "string", "Only for username lookups: the server whose members are searched (needs the Server Members Intent).", { pattern: "^\\d{15,21}$", example: "81384788765712384" });
 const guildId = snowflake("guildId", "Guild (server) ID.", "81384788765712384");
 const SF = "2026-01-15T12:00:00.000Z";
 
@@ -37,7 +42,7 @@ export const discordEndpoints: EndpointDefInput[] = [
   {
     id: "discord.users.get", service: "discord", tag: "Users", method: "GET", path: "/api/discord/users/{userId}",
     summary: "Get a user", description: "Public profile of any Discord user, with computed avatar/banner URLs, creation date and decoded badges.",
-    params: [snowflake("userId", "User snowflake.", "80351110224678912")], credential: bot, cacheTtl: 300, batchable: true,
+    params: [userRef(), guildIdQuery], credential: bot, cacheTtl: 300, batchable: true,
     fields: [
       ...userBrief, str("banner", "Banner hash.", { nullable: true }), int("accent_color", "Banner color as an integer.", { nullable: true }), bool("system", "Official Discord system user."),
       int("public_flags", "Raw public flag bitfield.", { nullable: true }), prim("badges", "Decoded public_flags names.", "string"),
@@ -56,7 +61,7 @@ export const discordEndpoints: EndpointDefInput[] = [
   {
     id: "discord.users.avatar", service: "discord", tag: "Users", method: "GET", path: "/api/discord/users/{userId}/avatar",
     summary: "Avatar URL (optionally Base64)", description: "Resolves a user's avatar at a chosen size and format. With base64=true the image is fetched from Discord's CDN and returned inline (≤ 2 MB).",
-    params: [snowflake("userId", "User snowflake.", "80351110224678912"),
+    params: [userRef(), guildIdQuery,
       q("size", "integer", "Power of two from 16 to 4096.", { enum: ["16", "32", "64", "128", "256", "512", "1024", "2048", "4096"], default: 1024 }),
       q("format", "string", "Image format. Omit for gif when animated, otherwise png.", { enum: ["png", "jpg", "webp", "gif"] }),
       q("base64", "boolean", "Also return the image as Base64.", { default: false })],
@@ -183,7 +188,7 @@ export const discordEndpoints: EndpointDefInput[] = [
   {
     id: "discord.guilds.member", service: "discord", tag: "Guilds", method: "GET", path: "/api/discord/guilds/{guildId}/members/{userId}",
     summary: "Get one member", description: "Server-specific data (nickname, roles, join date) for one user.",
-    params: [guildId, snowflake("userId", "User snowflake.", "80351110224678912")], credential: bot, cacheTtl: 30, batchable: true,
+    params: [guildId, userRef(true)], credential: bot, cacheTtl: 30, batchable: true,
     fields: memberFields, example: MEMBER_EX,
     errors: { NOT_FOUND: "The user is not a member of the guild.", FORBIDDEN: "No configured bot is a member of this guild." },
     handler: async ({ params }) => ({ data: memberPick(await dc(`/guilds/${params.guildId}/members/${params.userId}`, undefined, { fallbackOnAccess: true })) }),

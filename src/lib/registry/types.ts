@@ -19,6 +19,8 @@ export interface ParamDef {
   maxLength?: number;
   pattern?: string;
   items?: "string" | "integer";
+  /** Path param that accepts an ID or a username; the pipeline resolves it to an ID before the handler runs. */
+  resolve?: "robloxUser" | "discordUser";
 }
 
 /** Documents one field of the `data` payload (or of each item when the endpoint is a list). */

@@ -3,6 +3,7 @@ import { verifyApiKey } from "./auth";
 import { ApiError, toApiError } from "./errors";
 import { errorBody, successBody, type ApiBody, type PaginationMeta } from "./envelope";
 import { cacheGet, cacheSet, dedupe } from "./cache";
+import { resolveIdentity } from "./resolve";
 import type { EndpointDef, HandlerContext, ParamDef, PaginationDef } from "./registry";
 
 export type Source = "direct" | "batch" | "playground";
@@ -170,12 +171,20 @@ export async function execute(def: EndpointDef, raw: RawInput, opts: ExecOptions
   const logs: LogEntry[] = [];
   let status = 200, cached = false, errorCode: string | null = null;
   let body: ApiBody;
+  let resolved: { param: string; input: string; id: string } | undefined;
   const extra: Record<string, string> = {};
 
   try {
     const authErr = verifyApiKey(opts.apiKey);   // every request, sub-requests included
     if (authErr) throw authErr;
     const v = validateInput(def, raw);
+    for (const p of def.params) {
+      if (p.in !== "path" || !p.resolve) continue;
+      const input = v.params[p.name];
+      const r = await resolveIdentity(p.resolve, input, v);
+      if (r.via === "username") { v.params[p.name] = r.id; resolved = { param: p.name, input, id: r.id }; }
+      else v.params[p.name] = input.replace(/^@/, "");
+    }
     const ctx: HandlerContext = { ...v, requestId, apiKey: opts.apiKey, source: opts.source, emitLog: (e) => logs.push(e) };
     const key = `${def.id}|${stable(v.params)}|${stable(v.query)}`;
     let value = def.cacheTtl > 0 ? cacheGet<Computed>(key) : undefined;
@@ -185,7 +194,7 @@ export async function execute(def: EndpointDef, raw: RawInput, opts: ExecOptions
       if (def.cacheTtl > 0 && value.cacheable) cacheSet(key, value, def.cacheTtl);
     }
     body = successBody(value.data, value.nextCursor, {
-      cached, responseTime: 0, requestId, availability: value.availability, ...(value.pagination ? { pagination: value.pagination } : {}),
+      cached, responseTime: 0, requestId, availability: value.availability, ...(value.pagination ? { pagination: value.pagination } : {}), ...(resolved ? { resolved } : {}),
     });
   } catch (e) {
     const err = toApiError(e);

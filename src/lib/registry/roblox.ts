@@ -2,12 +2,48 @@ import { robloxRequest as rb } from "../upstream/roblox";
 import { config } from "../config";
 import { ApiError } from "../errors";
 import { fetchImageBase64 } from "../http";
+import { hydrateUsers, type UserLite } from "../upstream/roblox-users";
 import { arrOf, bool, dt, f, idParam, int, obj, pick, prim, q, settle, str } from "./helpers";
 import type { EndpointDefInput, FieldDef, HandlerContext, PageArgs, ParamDef } from "./types";
 
 const ROBLOX = { service: "roblox" as const };
 const optional = { ...ROBLOX, mode: "optional" as const, note: "Public data. Uses a rotating ROBLOX_COOKIES entry when configured, otherwise runs anonymously." };
-const userId = idParam("userId", "Roblox user ID.", 1);
+const userId: ParamDef = {
+  name: "userId", in: "path", type: "string", required: true, resolve: "robloxUser", pattern: "^(\\d{1,19}|@?[A-Za-z0-9_]{3,20})$", example: 1,
+  description: "Roblox user ID **or username** (case-insensitive). All-digit values are treated as IDs; prefix @ to force a username. Usernames are resolved to IDs first and the result is reported in metadata.resolved.",
+};
+const hydrateParam = q("hydrate", "boolean", "Look up username, display name and verified badge for every ID. Roblox's friends endpoints do not return them reliably. Set false for a faster IDs-only response.", { default: true });
+const socialFields: FieldDef[] = [
+  int("id", "User ID."),
+  str("name", "Username. null only if the account could not be resolved (deleted or terminated) or hydrate=false.", { nullable: true }),
+  str("displayName", "Display name, null when unresolved.", { nullable: true }),
+  bool("hasVerifiedBadge", "Verified badge, null when unresolved.", { nullable: true }),
+];
+const SOCIAL_EX = [{ id: 156, name: "builderman", displayName: "builderman", hasVerifiedBadge: true }];
+async function socialItems(raw: Record<string, unknown>[], hydrate: boolean) {
+  const base: UserLite[] = raw.map((u) => ({ id: (u.id ?? u.userId) as number, name: (u.name as string) ?? null, displayName: (u.displayName as string) ?? null, hasVerifiedBadge: (u.hasVerifiedBadge as boolean) ?? null }));
+  return hydrate ? hydrateUsers(base) : { items: base, failed: false };
+}
+/** Current endpoint first; if it fails, fall back to the older paginated /friends/find listing. */
+async function fetchFriends(id: string): Promise<Record<string, unknown>[]> {
+  try {
+    return ((await rb("friends", `/v1/users/${id}/friends`))?.data ?? []) as Record<string, unknown>[];
+  } catch (first) {
+    const code = (first as { code?: string }).code;
+    if (code === "RATE_LIMITED" || code === "CREDENTIALS_UNAVAILABLE" || code === "UPSTREAM_TIMEOUT") throw first;
+    const out: Record<string, unknown>[] = [];
+    let cursor: string | undefined;
+    try {
+      for (let i = 0; i < 20; i++) {
+        const r = await rb("friends", `/v1/users/${id}/friends/find`, { limit: 50, cursor });
+        out.push(...(((r?.PageItems ?? r?.data) ?? []) as Record<string, unknown>[]));
+        cursor = (r?.NextCursor ?? r?.nextPageCursor) || undefined;
+        if (!cursor) break;
+      }
+    } catch { throw first; }
+    return out;
+  }
+}
 const groupId = idParam("groupId", "Roblox group ID.", 1200769);
 const sortOrder = (d = "Asc"): ParamDef => q("sortOrder", "string", "Sort direction.", { enum: ["Asc", "Desc"], default: d });
 const OPAQUE = "Cursors are opaque Roblox tokens.";
@@ -147,21 +183,26 @@ export const robloxEndpoints: EndpointDefInput[] = [
   },
   {
     id: "roblox.users.friends", service: "roblox", tag: "Social", method: "GET", path: "/api/roblox/users/{userId}/friends",
-    summary: "List friends", description: "All friends of the user. Roblox returns the complete list in one response, so this endpoint is not paginated.",
-    params: [userId], credential: optional, cacheTtl: 120, batchable: true,
-    fields: userBrief, example: [USER_EX], errors: { NOT_FOUND: "User not found." },
-    handler: async ({ params }) => {
-      const r = await rb("friends", `/v1/users/${params.userId}/friends`);
-      return { data: ((r?.data ?? []) as Record<string, unknown>[]).map((u) => pick(u, userKeys)) };
+    summary: "List friends", description: "All friends of the user, with usernames filled in. Roblox's friends endpoint returns IDs with unreliable names, so the proxy collects the IDs (falling back to the older paginated listing if needed) and then resolves names in batches of 100. Not paginated.",
+    params: [userId, hydrateParam], credential: optional, cacheTtl: 120, batchable: true,
+    fields: socialFields, example: SOCIAL_EX, errors: { NOT_FOUND: "User not found." },
+    notes: ["metadata.availability is partial when some names could not be looked up; those entries keep their id with name=null."],
+    handler: async ({ params, query }) => {
+      const { items, failed } = await socialItems(await fetchFriends(params.userId), query.hydrate);
+      return { data: items, availability: items.length === 0 ? "empty" : failed ? "partial" : "available" };
     },
   },
   ...(["followers", "following"] as const).map((kind): EndpointDefInput => ({
     id: `roblox.users.${kind}`, service: "roblox", tag: "Social", method: "GET", path: `/api/roblox/users/{userId}/${kind}`,
-    summary: `List ${kind}`, description: `Accounts that ${kind === "followers" ? "follow this user" : "this user follows"}.`,
-    params: [userId, sortOrder("Desc")], credential: optional, cacheTtl: 60, batchable: true,
+    summary: `List ${kind}`, description: `Accounts that ${kind === "followers" ? "follow this user" : "this user follows"}, with usernames filled in (see hydrate).`,
+    params: [userId, sortOrder("Desc"), hydrateParam], credential: optional, cacheTtl: 60, batchable: true,
     pagination: { default: 25, max: 100, allowed: [10, 18, 25, 50, 100], cursorNote: OPAQUE },
-    fields: userBrief, example: [USER_EX],
-    list: page("friends", (c) => `/v1/users/${c.params.userId}/${kind === "following" ? "followings" : "followers"}`, (c) => ({ sortOrder: c.query.sortOrder }), (u) => pick(u, userKeys)),
+    fields: socialFields, example: SOCIAL_EX,
+    list: async (c, { cursor, limit }) => {
+      const r = await rb("friends", `/v1/users/${c.params.userId}/${kind === "following" ? "followings" : "followers"}`, { limit, cursor: cursor ?? undefined, sortOrder: c.query.sortOrder });
+      const { items } = await socialItems((r?.data ?? []) as Record<string, unknown>[], c.query.hydrate);
+      return { items, nextCursor: (r?.nextPageCursor as string) || null };
+    },
   })),
   {
     id: "roblox.users.presence", service: "roblox", tag: "Social", method: "GET", path: "/api/roblox/users/{userId}/presence",
