@@ -24,25 +24,41 @@ async function socialItems(raw: Record<string, unknown>[], hydrate: boolean) {
   const base = raw.map(toLite).filter((u) => Number.isFinite(u.id));
   return hydrate ? hydrateUsers(base) : { items: base, warnings: [] as string[] };
 }
-/** Current endpoint first; if it fails, fall back to the older paginated /friends/find listing. */
-async function fetchFriends(id: string): Promise<Record<string, unknown>[]> {
+/**
+ * Walk the cursor-paginated /friends/find listing (the legacy /friends endpoint is capped and truncates silently).
+ * Falls back to the legacy endpoint only if /friends/find fails before returning anything.
+ * Partial results are returned with a warning instead of an error.
+ */
+const FRIENDS_MAX_PAGES = 60;
+async function fetchFriends(id: string): Promise<{ raw: Record<string, unknown>[]; warnings: string[] }> {
+  const seen = new Map<unknown, Record<string, unknown>>();
+  const warnings: string[] = [];
+  const started = Date.now();
+  let cursor: string | undefined;
   try {
-    return ((await rb("friends", `/v1/users/${id}/friends`))?.data ?? []) as Record<string, unknown>[];
+    for (let page = 0; page < FRIENDS_MAX_PAGES; page++) {
+      const r = await rb("friends", `/v1/users/${id}/friends/find`, { limit: 50, cursor });
+      for (const item of ((r?.PageItems ?? r?.data ?? []) as Record<string, unknown>[])) {
+        const uid = item.id ?? item.userId;
+        if (uid != null && !seen.has(uid)) seen.set(uid, item);
+      }
+      cursor = (r?.NextCursor ?? r?.nextPageCursor) || undefined;
+      if (!cursor) break;
+      if (page === FRIENDS_MAX_PAGES - 1) warnings.push(`Stopped after ${FRIENDS_MAX_PAGES} pages; the friend list may be incomplete`);
+      else if (Date.now() - started > config.autoTimeoutMs) { warnings.push("Time budget reached; the friend list may be incomplete"); break; }
+    }
   } catch (first) {
     const code = (first as { code?: string }).code;
-    if (code === "RATE_LIMITED" || code === "CREDENTIALS_UNAVAILABLE" || code === "UPSTREAM_TIMEOUT") throw first;
-    const out: Record<string, unknown>[] = [];
-    let cursor: string | undefined;
-    try {
-      for (let i = 0; i < 20; i++) {
-        const r = await rb("friends", `/v1/users/${id}/friends/find`, { limit: 50, cursor });
-        out.push(...(((r?.PageItems ?? r?.data) ?? []) as Record<string, unknown>[]));
-        cursor = (r?.NextCursor ?? r?.nextPageCursor) || undefined;
-        if (!cursor) break;
-      }
-    } catch { throw first; }
-    return out;
+    if (seen.size > 0) {
+      warnings.push(`Friend list may be incomplete: paging stopped early (${code ?? "ERROR"})`);
+    } else {
+      if (code === "RATE_LIMITED" || code === "CREDENTIALS_UNAVAILABLE" || code === "UPSTREAM_TIMEOUT") throw first;
+      const r = await rb("friends", `/v1/users/${id}/friends`).catch(() => { throw first; });
+      for (const u of ((r?.data ?? []) as Record<string, unknown>[])) if (u.id != null) seen.set(u.id, u);
+      warnings.push("Used the legacy friends endpoint because /friends/find failed; Roblox caps it, so the list may be truncated");
+    }
   }
+  return { raw: [...seen.values()], warnings };
 }
 const groupId = idParam("groupId", "Roblox group ID.", 1200769);
 const sortOrder = (d = "Asc"): ParamDef => q("sortOrder", "string", "Sort direction.", { enum: ["Asc", "Desc"], default: d });
@@ -183,12 +199,14 @@ export const robloxEndpoints: EndpointDefInput[] = [
   },
   {
     id: "roblox.users.friends", service: "roblox", tag: "Social", method: "GET", path: "/api/roblox/users/{userId}/friends",
-    summary: "List friends", description: "All friends of the user, with usernames filled in. Roblox's friends endpoint returns IDs with unreliable names, so the proxy collects the IDs (falling back to the older paginated listing if needed) and then resolves names in batches of 100. Not paginated.",
+    summary: "List friends", description: "Every friend of the user, with usernames filled in. The proxy walks Roblox's cursor-paginated /friends/find listing (50 per page, up to 60 pages) because the legacy /friends endpoint is capped and silently truncates; the legacy endpoint is used only if /friends/find fails before returning anything. Names are then resolved in batches of 100. The response is not paginated: the proxy follows every cursor itself.",
     params: [userId, hydrateParam], credential: optional, cacheTtl: 120, batchable: true,
     fields: socialFields, example: SOCIAL_EX, errors: { NOT_FOUND: "User not found." },
-    notes: ["metadata.count is the number of friends returned. metadata.availability is partial, with details in metadata.warnings, when some names could not be looked up; those entries keep their id with name=null."],
+    notes: ["metadata.count is the number of friends returned. A warning is added if the legacy endpoint was used or paging stopped early. metadata.availability is partial, with details in metadata.warnings, when some names could not be looked up; those entries keep their id with name=null."],
     handler: async ({ params, query }) => {
-      const { items, warnings } = await socialItems(await fetchFriends(params.userId), query.hydrate);
+      const { raw, warnings: fw } = await fetchFriends(params.userId);
+      const { items, warnings: hw } = await socialItems(raw, query.hydrate);
+      const warnings = [...fw, ...hw];
       return { data: items, warnings, availability: items.length === 0 ? "empty" : warnings.length ? "partial" : "available" };
     },
   },
