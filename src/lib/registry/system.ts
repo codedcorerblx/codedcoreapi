@@ -61,7 +61,7 @@ export const systemEndpoints: EndpointDefInput[] = [
         str("anonymousFallback", "Which requests may run without a credential."),
         arrOf("credentials", "One entry per credential.", [
           int("index", "1-based position in the environment list."),
-          str("state", "ready | cooling_down | invalid"),
+          str("state", "ready | cooling_down | invalid | malformed (contains spaces, line breaks or non-ASCII characters; fix the env value)"),
           int("cooldownRemainingSeconds", "Seconds until the credential is usable again (0 when ready)."),
           int("requestsServed", "Requests served by this credential since this server instance started."),
           int("lastStatus", "Last upstream HTTP status seen.", { nullable: true }),

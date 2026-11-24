@@ -10,11 +10,13 @@ export async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs
     return await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
   } catch (e) {
     if (ctrl.signal.aborted) throw new ApiError("UPSTREAM_TIMEOUT", `Upstream did not respond within ${timeoutMs}ms`);
-    // Surface the low-level cause code (ECONNRESET, ENOTFOUND, UND_ERR_CONNECT_TIMEOUT, CERT_*, ...). No URLs or secrets.
-    const cause = (e as { cause?: { code?: string; message?: string } })?.cause;
-    const code = cause?.code ?? (e instanceof Error ? e.name : "unknown");
-    console.error(`[upstream] network failure host=${new URL(url).host} cause=${code} detail=${String(cause?.message ?? (e as Error)?.message ?? "").slice(0, 160)}`);
-    throw new ApiError("UPSTREAM_ERROR", `Could not reach the upstream API (${code})`, { details: { cause: code } });
+    // Surface the low-level cause (no URLs, no secrets). Messages are redacted: undici can echo header values.
+    const err = e as { name?: string; message?: string; cause?: { code?: string; message?: string; errors?: { code?: string }[] } };
+    const code = err.cause?.code ?? err.cause?.errors?.find((x) => x.code)?.code ?? err.name ?? "unknown";
+    const redact = (m: unknown) => String(m ?? "").replace(/[A-Za-z0-9_|.+\/=%:-]{24,}/g, "[redacted]").slice(0, 160);
+    const hint = code === "TypeError" ? " (the request was rejected locally before being sent; check credential formatting)" : "";
+    console.error(`[upstream] network failure host=${new URL(url).host} cause=${code} detail=${redact(err.cause?.message ?? err.message)}`);
+    throw new ApiError("UPSTREAM_ERROR", `Could not reach the upstream API (${code})${hint}`, { details: { cause: code } });
   } finally {
     clearTimeout(timer);
   }

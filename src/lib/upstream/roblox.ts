@@ -44,7 +44,7 @@ export async function robloxRequest(host: RobloxHost, path: string, query?: Reco
     if (!cred) {
       if (waitMs > 0 && waitMs <= 1500) { await sleep(waitMs); continue; }
       throw lastErr ?? new ApiError(waitMs > 0 ? "RATE_LIMITED" : "CREDENTIALS_UNAVAILABLE",
-        waitMs > 0 ? "All Roblox credentials are rate limited" : "All Roblox credentials are invalid", { retryAfter: Math.ceil(waitMs / 1000) || undefined });
+        waitMs > 0 ? "All Roblox credentials are rate limited" : "All Roblox credentials are invalid or malformed (see GET /api/credentials)", { retryAfter: Math.ceil(waitMs / 1000) || undefined });
     }
     const useCookie = auth !== "none" && cred.secret !== "";
     const headers: Record<string, string> = { accept: "application/json" };

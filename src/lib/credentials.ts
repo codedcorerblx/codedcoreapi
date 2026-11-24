@@ -14,6 +14,8 @@ export interface Credential {
   secret: string;
   cooldownUntil: number;
   invalid: boolean;
+  /** Contains characters that cannot be sent in an HTTP header (spaces, line breaks, non-ASCII). */
+  malformed: boolean;
   served: number;
   lastUsed: number;
   lastStatus: number | null;
@@ -35,7 +37,7 @@ function normalise(service: Service, v: string): string {
 const mk = (service: Service, index: number, secret: string): Credential => ({
   service, index, secret,
   id: createHmac("sha256", config.apiSecret || "x").update(service + index + secret).digest("hex").slice(0, 16),
-  cooldownUntil: 0, invalid: false, served: 0, lastUsed: 0, lastStatus: null, buckets: new Map(),
+  cooldownUntil: 0, invalid: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), malformed: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), served: 0, lastUsed: 0, lastStatus: null, buckets: new Map(),
 });
 
 function pool(service: Service): Pool {
@@ -118,7 +120,7 @@ export function markCooldown(c: Credential, ms: number) {
   persist(c);
 }
 export function markInvalid(c: Credential) {
-  if (c.index === 0) return;
+  if (c.index === 0 || c.malformed) return;
   c.invalid = true;
   setTimeout(() => { c.invalid = false; }, 10 * 60_000).unref?.();
   markCooldown(c, 10 * 60_000);
@@ -138,7 +140,7 @@ export async function snapshot(service: Service) {
     anonymousFallback: service === "discord" ? "endpoints that are public" : "endpoints that are public",
     credentials: p.creds.map((c) => ({
       index: c.index,
-      state: c.invalid ? "invalid" : c.cooldownUntil > now ? "cooling_down" : "ready",
+      state: c.malformed ? "malformed" : c.invalid ? "invalid" : c.cooldownUntil > now ? "cooling_down" : "ready",
       cooldownRemainingSeconds: Math.max(0, Math.ceil((c.cooldownUntil - now) / 1000)),
       requestsServed: c.served,
       lastStatus: c.lastStatus,

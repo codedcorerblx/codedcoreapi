@@ -36,7 +36,7 @@ export async function discordRequest(path: string, query?: Record<string, unknow
       if (lastErr && tried.size > 0 && waitMs === 0) throw lastErr; // every bot was tried and denied access
       if (waitMs > 0 && waitMs <= 1500) { await sleep(waitMs); continue; }
       throw lastErr ?? new ApiError(waitMs > 0 ? "RATE_LIMITED" : "CREDENTIALS_UNAVAILABLE",
-        waitMs > 0 ? "All Discord credentials are rate limited" : "All Discord credentials are invalid", { retryAfter: Math.ceil(waitMs / 1000) || undefined });
+        waitMs > 0 ? "All Discord credentials are rate limited" : "All Discord credentials are invalid or malformed (see GET /api/credentials)", { retryAfter: Math.ceil(waitMs / 1000) || undefined });
     }
     const headers: Record<string, string> = { accept: "application/json", "user-agent": "DiscordBot (proxy-hub, 1.0)" };
     if (auth !== "none" && cred.secret) headers.authorization = `Bot ${cred.secret}`;
