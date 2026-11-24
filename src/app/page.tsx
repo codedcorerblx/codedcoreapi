@@ -2,8 +2,9 @@ import Link from "next/link";
 import { healthOf, homeSummary } from "@/lib/analytics";
 import { endpoints } from "@/lib/registry";
 import { JsonView, Curl } from "@/components/Json";
+import { getBaseUrl } from "@/lib/base-url";
 
-export const revalidate = 30;
+export const dynamic = "force-dynamic";
 
 const hero = { success: true, data: { id: 1, name: "Roblox", displayName: "Roblox", hasVerifiedBadge: true }, error: null, nextCursor: null,
   metadata: { timestamp: "2026-01-15T12:00:00.000Z", cached: false, responseTime: 120, requestId: "7b0c1d52-…", availability: "available" } };
@@ -18,6 +19,7 @@ const links = [
 ] as const;
 
 export default async function Home() {
+  const base = await getBaseUrl();
   const d = await homeSummary();
   const stat = new Map((d?.endpoints ?? []).map((e) => [e.id as string, e]));
   const svc = (s: string) => {
@@ -36,7 +38,7 @@ export default async function Home() {
         </div>
         <div className="codewin">
           <header><span>GET /api/roblox/users/1</span><b style={{ marginLeft: "auto" }}>200</b></header>
-          <Curl text={"curl 'https://your-deployment.vercel.app/api/roblox/users/1' \\\n  -H 'x-api-key: YOUR_API_KEY'"} />
+          <Curl text={`curl '${base}/api/roblox/users/1' \\\n  -H 'x-api-key: YOUR_API_KEY'`} />
           <JsonView value={hero} bordered={false} />
         </div>
       </section>
@@ -72,9 +74,9 @@ export default async function Home() {
       <section className="section">
         <h2>Quick start</h2>
         <p className="lede">Pass the key in <code>x-api-key</code>. Page through lists with <code>cursor</code>, or let the server collect everything with <code>cursor=auto</code>.</p>
-        <Curl text={"curl 'https://your-deployment.vercel.app/api/roblox/users/1/badges?limit=100&cursor=auto&maxItems=500' \\\n  -H 'x-api-key: YOUR_API_KEY'"} />
+        <Curl text={`curl '${base}/api/roblox/users/1/badges?limit=100&cursor=auto&maxItems=500' \\\n  -H 'x-api-key: YOUR_API_KEY'`} />
         <div style={{ height: 12 }} />
-        <Curl text={`curl -X POST 'https://your-deployment.vercel.app/api/batch' \\\n  -H 'x-api-key: YOUR_API_KEY' -H 'content-type: application/json' \\\n  -d '{"requests":[{"id":"user","endpoint":"/api/roblox/users/1"},{"id":"guild","endpoint":"/api/discord/guilds/81384788765712384"}]}'`} />
+        <Curl text={`curl -X POST '${base}/api/batch' \\\n  -H 'x-api-key: YOUR_API_KEY' -H 'content-type: application/json' \\\n  -d '{"requests":[{"id":"user","endpoint":"/api/roblox/users/1"},{"id":"guild","endpoint":"/api/discord/guilds/81384788765712384"}]}'`} />
       </section>
     </div>
   );
