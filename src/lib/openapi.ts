@@ -87,6 +87,7 @@ export function buildOpenApi(baseUrl: string): Json {
           timestamp: { type: "string", format: "date-time" }, cached: { type: "boolean", description: "Served from the in-memory cache." },
           responseTime: { type: "integer", description: "Milliseconds spent in the proxy." }, requestId: { type: "string" },
           availability: { type: "string", enum: ["available", "empty", "partial"], description: "empty = valid request, nothing to return; partial = some sections failed." },
+          count: { type: "integer", description: "Number of entries when data is an array." }, warnings: { type: "array", items: { type: "string" }, description: "Non-fatal problems, e.g. some names could not be looked up (then availability is partial)." },
           pagination: { type: "object", properties: { mode: { type: "string", enum: ["manual", "auto"] }, pages: { type: "integer" }, itemCount: { type: "integer" }, truncated: { type: "boolean" }, reason: { type: ["string", "null"], description: "MAX_ITEMS, MAX_PAGES, TIMEOUT or an error code when truncated." } } },
         } },
         SuccessEnvelope: { type: "object", required: ["success", "data", "error", "nextCursor", "metadata"], properties: {

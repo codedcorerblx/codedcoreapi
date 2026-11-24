@@ -54,9 +54,9 @@ export interface HandlerContext {
   source: "direct" | "batch" | "playground";
   emitLog: (e: import("../pipeline").LogEntry) => void;
 }
-export interface SingleResult { data: unknown; availability?: "available" | "empty" | "partial" }
+export interface SingleResult { data: unknown; availability?: "available" | "empty" | "partial"; warnings?: string[] }
 export interface PageArgs { cursor: string | null; limit: number }
-export interface PageResult { items: unknown[]; nextCursor: string | null }
+export interface PageResult { items: unknown[]; nextCursor: string | null; warnings?: string[] }
 
 export interface EndpointDefInput {
   id: string;

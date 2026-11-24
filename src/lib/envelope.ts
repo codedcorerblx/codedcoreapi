@@ -14,6 +14,10 @@ export interface Metadata {
   requestId: string;
   availability?: "available" | "empty" | "partial";
   pagination?: PaginationMeta;
+  /** Number of entries in `data` when it is an array. */
+  count?: number;
+  /** Non-fatal problems (e.g. some names could not be looked up). */
+  warnings?: string[];
   /** Present when a username was translated to an ID. */
   resolved?: { param: string; input: string; id: string };
 }

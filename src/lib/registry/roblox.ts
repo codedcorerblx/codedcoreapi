@@ -2,7 +2,7 @@ import { robloxRequest as rb } from "../upstream/roblox";
 import { config } from "../config";
 import { ApiError } from "../errors";
 import { fetchImageBase64 } from "../http";
-import { hydrateUsers, type UserLite } from "../upstream/roblox-users";
+import { hydrateUsers, toLite } from "../upstream/roblox-users";
 import { arrOf, bool, dt, f, idParam, int, obj, pick, prim, q, settle, str } from "./helpers";
 import type { EndpointDefInput, FieldDef, HandlerContext, PageArgs, ParamDef } from "./types";
 
@@ -21,8 +21,8 @@ const socialFields: FieldDef[] = [
 ];
 const SOCIAL_EX = [{ id: 156, name: "builderman", displayName: "builderman", hasVerifiedBadge: true }];
 async function socialItems(raw: Record<string, unknown>[], hydrate: boolean) {
-  const base: UserLite[] = raw.map((u) => ({ id: (u.id ?? u.userId) as number, name: (u.name as string) ?? null, displayName: (u.displayName as string) ?? null, hasVerifiedBadge: (u.hasVerifiedBadge as boolean) ?? null }));
-  return hydrate ? hydrateUsers(base) : { items: base, failed: false };
+  const base = raw.map(toLite).filter((u) => Number.isFinite(u.id));
+  return hydrate ? hydrateUsers(base) : { items: base, warnings: [] as string[] };
 }
 /** Current endpoint first; if it fails, fall back to the older paginated /friends/find listing. */
 async function fetchFriends(id: string): Promise<Record<string, unknown>[]> {
@@ -186,10 +186,10 @@ export const robloxEndpoints: EndpointDefInput[] = [
     summary: "List friends", description: "All friends of the user, with usernames filled in. Roblox's friends endpoint returns IDs with unreliable names, so the proxy collects the IDs (falling back to the older paginated listing if needed) and then resolves names in batches of 100. Not paginated.",
     params: [userId, hydrateParam], credential: optional, cacheTtl: 120, batchable: true,
     fields: socialFields, example: SOCIAL_EX, errors: { NOT_FOUND: "User not found." },
-    notes: ["metadata.availability is partial when some names could not be looked up; those entries keep their id with name=null."],
+    notes: ["metadata.count is the number of friends returned. metadata.availability is partial, with details in metadata.warnings, when some names could not be looked up; those entries keep their id with name=null."],
     handler: async ({ params, query }) => {
-      const { items, failed } = await socialItems(await fetchFriends(params.userId), query.hydrate);
-      return { data: items, availability: items.length === 0 ? "empty" : failed ? "partial" : "available" };
+      const { items, warnings } = await socialItems(await fetchFriends(params.userId), query.hydrate);
+      return { data: items, warnings, availability: items.length === 0 ? "empty" : warnings.length ? "partial" : "available" };
     },
   },
   ...(["followers", "following"] as const).map((kind): EndpointDefInput => ({
@@ -200,8 +200,8 @@ export const robloxEndpoints: EndpointDefInput[] = [
     fields: socialFields, example: SOCIAL_EX,
     list: async (c, { cursor, limit }) => {
       const r = await rb("friends", `/v1/users/${c.params.userId}/${kind === "following" ? "followings" : "followers"}`, { limit, cursor: cursor ?? undefined, sortOrder: c.query.sortOrder });
-      const { items } = await socialItems((r?.data ?? []) as Record<string, unknown>[], c.query.hydrate);
-      return { items, nextCursor: (r?.nextPageCursor as string) || null };
+      const { items, warnings } = await socialItems((r?.data ?? []) as Record<string, unknown>[], c.query.hydrate);
+      return { items, warnings, nextCursor: (r?.nextPageCursor as string) || null };
     },
   })),
   {

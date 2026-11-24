@@ -1,6 +1,6 @@
 import { ApiError, type ErrorCode } from "../errors";
 import { config } from "../config";
-import { acquire, markCooldown, markInvalid, credentialCount } from "../credentials";
+import { acquire, markCooldown, markInvalid, credentialCount, type Credential } from "../credentials";
 import { backoff, buildUrl, fetchWithTimeout, readJson, sleep, upstreamMessage } from "../http";
 
 const HOSTS = {
@@ -27,8 +27,6 @@ export interface RobloxOpts {
   notFound?: string;
 }
 
-let csrf = "";
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function robloxRequest(host: RobloxHost, path: string, query?: Record<string, unknown>, opts: RobloxOpts = {}): Promise<any> {
   const auth = opts.auth ?? "optional";
@@ -36,9 +34,13 @@ export async function robloxRequest(host: RobloxHost, path: string, query?: Reco
   const method = opts.method ?? "GET";
   const maxAttempts = config.upstreamRetries + credentialCount("roblox") + 2;
   let lastErr: ApiError | null = null;
+  let sticky: Credential | null = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { cred, waitMs, configured } = await acquire("roblox", { allowAnonymous: auth === "optional" || auth === "none" });
+    // After a CSRF handshake, retry with the SAME credential (the token belongs to its session).
+    const got: { cred: Credential | null; waitMs: number; configured: number } = sticky ? { cred: sticky, waitMs: 0, configured: credentialCount("roblox") } : await acquire("roblox", { allowAnonymous: auth === "optional" || auth === "none" });
+    sticky = null;
+    const { cred, waitMs, configured } = got;
     if (auth === "required" && configured === 0)
       throw new ApiError("CREDENTIALS_UNAVAILABLE", "This endpoint needs a Roblox cookie. Set ROBLOX_COOKIES.");
     if (!cred) {
@@ -49,7 +51,7 @@ export async function robloxRequest(host: RobloxHost, path: string, query?: Reco
     const useCookie = auth !== "none" && cred.secret !== "";
     const headers: Record<string, string> = { accept: "application/json" };
     if (useCookie) headers.cookie = `.ROBLOSECURITY=${cred.secret}`;
-    if (method === "POST") { headers["content-type"] = "application/json"; if (csrf) headers["x-csrf-token"] = csrf; }
+    if (method === "POST") { headers["content-type"] = "application/json"; if (cred?.csrf) headers["x-csrf-token"] = cred.csrf; }
 
     let res: Response;
     try {
@@ -64,7 +66,7 @@ export async function robloxRequest(host: RobloxHost, path: string, query?: Reco
 
     const body = await readJson(res);
     const msg = upstreamMessage(body, `Roblox returned HTTP ${res.status}`);
-    if (res.status === 403 && method === "POST" && res.headers.get("x-csrf-token")) { csrf = res.headers.get("x-csrf-token")!; continue; }
+    if (res.status === 403 && method === "POST" && res.headers.get("x-csrf-token")) { cred.csrf = res.headers.get("x-csrf-token")!; sticky = cred; continue; }
     if (res.status === 429) {
       const ra = Number(res.headers.get("retry-after") ?? res.headers.get("x-ratelimit-reset") ?? 30);
       markCooldown(cred, (Number.isFinite(ra) && ra > 0 ? ra : 30) * 1000);

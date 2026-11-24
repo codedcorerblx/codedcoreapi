@@ -23,6 +23,7 @@ interface Computed {
   data: unknown; nextCursor: string | null;
   availability: "available" | "empty" | "partial";
   pagination?: PaginationMeta;
+  warnings?: string[];
   cacheable: boolean;
 }
 
@@ -121,7 +122,7 @@ async function compute(def: EndpointDef, ctx: HandlerContext): Promise<Computed>
   if (!def.isList) {
     const r = await def.handler!(ctx);
     const empty = Array.isArray(r.data) && r.data.length === 0;
-    return { data: r.data, nextCursor: null, availability: r.availability ?? (empty ? "empty" : "available"), cacheable: true };
+    return { data: r.data, nextCursor: null, availability: r.availability ?? (empty ? "empty" : "available"), warnings: r.warnings, cacheable: true };
   }
   const pag = def.pagination!;
   const auto = ctx.query.cursor === "auto";
@@ -131,17 +132,19 @@ async function compute(def: EndpointDef, ctx: HandlerContext): Promise<Computed>
   if (!auto) {
     const page = await def.list!(ctx, { cursor: (ctx.query.cursor as string) ?? null, limit });
     return {
-      data: page.items, nextCursor: page.nextCursor, availability: page.items.length ? "available" : "empty", cacheable: true,
+      data: page.items, nextCursor: page.nextCursor, availability: page.items.length ? "available" : "empty", warnings: page.warnings, cacheable: true,
       pagination: { mode: "manual", pages: 1, itemCount: page.items.length, truncated: false, reason: null },
     };
   }
   const cap = Math.min(ctx.query.maxItems ?? Infinity, config.autoMaxItems);
   const items: unknown[] = [];
   let cursor: string | null = null, pages = 0, reason: string | null = null, partial = false;
+  const warn = new Set<string>();
   for (;;) {
     try {
       const page = await def.list!(ctx, { cursor, limit });
       items.push(...page.items);
+      page.warnings?.forEach((w) => warn.add(w));
       cursor = page.nextCursor;
       pages++;
     } catch (e) {
@@ -156,7 +159,7 @@ async function compute(def: EndpointDef, ctx: HandlerContext): Promise<Computed>
   const truncated = reason !== null;
   return {
     data: items, nextCursor: truncated ? cursor : null,
-    availability: partial ? "partial" : items.length ? "available" : "empty",
+    availability: partial || warn.size ? "partial" : items.length ? "available" : "empty", warnings: [...warn],
     cacheable: !partial,
     pagination: { mode: "auto", pages, itemCount: items.length, truncated, reason },
   };
@@ -194,7 +197,8 @@ export async function execute(def: EndpointDef, raw: RawInput, opts: ExecOptions
       if (def.cacheTtl > 0 && value.cacheable) cacheSet(key, value, def.cacheTtl);
     }
     body = successBody(value.data, value.nextCursor, {
-      cached, responseTime: 0, requestId, availability: value.availability, ...(value.pagination ? { pagination: value.pagination } : {}), ...(resolved ? { resolved } : {}),
+      cached, responseTime: 0, requestId, availability: value.availability, ...(value.pagination ? { pagination: value.pagination } : {}),
+      ...(Array.isArray(value.data) ? { count: value.data.length } : {}), ...(value.warnings?.length ? { warnings: value.warnings } : {}), ...(resolved ? { resolved } : {}),
     });
   } catch (e) {
     const err = toApiError(e);

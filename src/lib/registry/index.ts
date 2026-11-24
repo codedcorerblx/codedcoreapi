@@ -94,6 +94,7 @@ export function exampleEnvelope(d: PublicEndpoint | EndpointDef) {
       timestamp: EXAMPLE_TS, cached: false, responseTime: 184,
       requestId: "7b0c1d52-8e6a-4c0e-9d51-3f2a6a1c9e10",
       availability: "available",
+      ...(Array.isArray(d.example) ? { count: d.example.length } : {}),
       ...(d.pagination ? { pagination: { mode: "manual", pages: 1, itemCount: Array.isArray(d.example) ? d.example.length : 0, truncated: false, reason: null } } : {}),
     },
   };

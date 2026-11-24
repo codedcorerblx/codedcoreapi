@@ -16,6 +16,8 @@ export interface Credential {
   invalid: boolean;
   /** Contains characters that cannot be sent in an HTTP header (spaces, line breaks, non-ASCII). */
   malformed: boolean;
+  /** Roblox X-CSRF-TOKEN, tied to this credential's session. */
+  csrf: string;
   served: number;
   lastUsed: number;
   lastStatus: number | null;
@@ -37,7 +39,7 @@ function normalise(service: Service, v: string): string {
 const mk = (service: Service, index: number, secret: string): Credential => ({
   service, index, secret,
   id: createHmac("sha256", config.apiSecret || "x").update(service + index + secret).digest("hex").slice(0, 16),
-  cooldownUntil: 0, invalid: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), malformed: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), served: 0, lastUsed: 0, lastStatus: null, buckets: new Map(),
+  cooldownUntil: 0, invalid: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), malformed: secret !== "" && !/^[\x21-\x7E]+$/.test(secret), csrf: "", served: 0, lastUsed: 0, lastStatus: null, buckets: new Map(),
 });
 
 function pool(service: Service): Pool {
